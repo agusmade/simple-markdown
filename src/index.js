@@ -1,3 +1,49 @@
+let _nre={};
+
+const attrIndex = re => {
+    if (_nre.hasOwnProperty(re)) { return _nre[re]; }
+    if (re.source.match(/\(\\\{\[\\s\\S\]\+\?\\\}\)\?(\\n)?$/)){
+        _nre[re] = (new RegExp(re.source + '|')).exec('').length - 1;
+        return _nre[re];
+    }
+    _nre[re]=false;
+    return _nre[re];
+}
+const numGroups = sRe => (new RegExp(sRe + '|')).exec('').length - 1;
+
+const _attrRE={
+    '\\#(\\w+)': (rslt, i, d)=>{ d.id=rslt[i+1] },
+    '\\.([\\w-]+)': (rslt, i, d)=>{ d.class=d.class||[]; d.class.push(rslt[i+1]) },
+    '([\\w-]+)\s*=\s*\\"([\\s\\S]+?)\\"': (rslt, i, d)=>{ d[rslt[i+1]]=rslt[i+2] },
+    '([\\w-]+)=([\\S]+)':(rslt, i, d)=>{ d[rslt[i+1]]=rslt[i+2] },
+    '[\\w-]+':(rslt, i, d)=>{ d[rslt[i]]=true; },
+}
+
+const _attrReKeys=Object.keys(_attrRE);
+let _idx=0;
+const _attrReIndex=_attrReKeys.map(v=>{let s=++_idx; _idx+=numGroups(v); return s; });
+const _attrAllRe=new RegExp(_attrReKeys.map(v=>`(${v})`).join('|'),'g');
+const processAttr=(s)=>{
+    if (!s){ return {}; }
+    // let _m=(s||'').match(/\{([\s\S]+)\}/);
+    // if (!(_m && _m[1])){
+    //     return {};
+    // }
+    let d={};
+    let m=!undefined;
+    while (m = _attrAllRe.exec(s)){
+        // console.log(m);
+        if (!m) { break; }
+        _attrReIndex.forEach((i,k)=>{
+            if(m[i]){
+                _attrRE[_attrReKeys[k]](m, i, d);
+            }
+        });
+    }
+    // return Object.keys(d).length ? d : false;
+    return d;
+}
+
 /* @flow */
 /* @ts-check */
 
@@ -358,7 +404,7 @@ var parserFor = function(rules /*: ParserRules */, defaultState /*: ?State */) {
         /** @type Array<SimpleMarkdown.SingleASTNode> */
         var result = [];
         state = state || latestState;
-        latestState = state;
+        latestState = state.rslt=result;
         while (source) {
             // store the best match, it's rule, and quality:
             var ruleType = null;
@@ -441,20 +487,24 @@ var parserFor = function(rules /*: ParserRules */, defaultState /*: ?State */) {
             // store references to the objects they return and
             // modify them later. (oops sorry! but this adds a lot
             // of power--see reflinks.)
-            if (Array.isArray(parsed)) {
-                Array.prototype.push.apply(result, parsed);
+            if (ruleType === 'attr'){
+                state.prevResult[state.prevResult.length-1].attr = parsed;
             } else {
-                // We also let rules override the default type of
-                // their parsed node if they would like to, so that
-                // there can be a single output function for all links,
-                // even if there are several rules to parse them.
-                if (parsed.type == null) {
-                    parsed.type = ruleType;
+                if (Array.isArray(parsed)) {
+                    Array.prototype.push.apply(result, parsed);
+                } else {
+                    // We also let rules override the default type of
+                    // their parsed node if they would like to, so that
+                    // there can be a single output function for all links,
+                    // even if there are several rules to parse them.
+                    if (parsed.type == null) {
+                        parsed.type = ruleType;
+                    }
+                    result.push(/** @type {SimpleMarkdown.SingleASTNode} */ (parsed));
                 }
-                result.push(/** @type {SimpleMarkdown.SingleASTNode} */ (parsed));
             }
-
             state.prevCapture = capture;
+            state.prevResult = result;
             source = source.substring(state.prevCapture[0].length);
         }
         return result;
@@ -472,6 +522,7 @@ var parserFor = function(rules /*: ParserRules */, defaultState /*: ?State */) {
         // text (see the list rule for more information). This stores
         // the full regex capture object, if there is one.
         latestState.prevCapture = null;
+        latestState.prevResult = null;
         return nestedParse(preprocess(source), latestState);
     };
     return outerParse;
@@ -725,10 +776,6 @@ var LIST_R = new RegExp(
 var LIST_LOOKBEHIND_R = /(?:^|\n)( *)$/;
 
 var TABLES = (function() {
-    // predefine regexes so we don't have to create them inside functions
-    // sure, regex literals should be fast, even inside functions, but they
-    // aren't in all browsers.
-    var TABLE_BLOCK_TRIM = /\n+/g;
     var TABLE_ROW_SEPARATOR_TRIM = /^ *\| *| *\| *$/g;
     var TABLE_CELL_END_TRIM = / *$/;
     var TABLE_RIGHT_ALIGN = /^ *-+: *$/;
@@ -924,7 +971,7 @@ var defaultRules /* : DefaultRules */ = {
 
             // map output over the ast, except group any text
             // nodes together into a single string output.
-            for (var i = 0, key = 0; i < arr.length; i++) {
+            for (var i = 0; i < arr.length; i++) {
 
                 var node = arr[i];
                 if (node.type === 'text') {
@@ -1051,6 +1098,31 @@ var defaultRules /* : DefaultRules */ = {
         },
         react: null,
         html: null
+    },
+    container: {
+        order: currOrder++,
+        match: blockRegex(/^ *(:{3,}) *(?:(\w+) *)?([\s\S]+?)\n([\s\S]+?)\n?\1 *(?:\n *)+/),
+        // batch: blockRegex(/^ *(:{3,}) *(?:(spoiler|warning|error|info|tips) *)?([\s\S]+?)\n([\s\S]+?)\n?\1 *(?:\n *)(\{[\s\S]+?\})?\n/),
+        parse: function(capture, parse, state) {
+            return {
+                // type: capture[1],
+                // type: capture[2] || 'container',
+                containerType: capture[2] || '',
+                title: parseInline(parse, capture[3]||'', state), // parse(capture[3]||'', state),
+                content: parseBlock(parse, capture[4], state)
+            };
+        },
+        react: function(node, output, state) {
+            return reactElement(
+                'blockquote',
+                state.key,
+                {
+                    children: output(node.content, state)
+                }
+            );
+        },
+        html: null
+        
     },
     blockQuote: {
         order: currOrder++,
@@ -1392,9 +1464,55 @@ var defaultRules /* : DefaultRules */ = {
         react: function(node, output, state) { return "\n"; },
         html: function(node, output, state) { return "\n"; }
     },
+    br1: {
+        order: currOrder++,
+        match: inlineRegex(/^\\\\/),
+        parse: ()=>({type:'br'}),
+        react: null,
+        html: null
+    },
+    attr: {
+        order: currOrder++,
+        match: anyScopeRegex(/^\s*\{([\s\S]+?)\}/),
+        parse: function(capture, parse, state) {
+            let d=processAttr(capture[1])
+            return d;
+        },
+        react: null,
+        html: null
+    },
+    p: {
+        order: currOrder++,
+        match: blockRegex(/^((?:[^\n]|\n(?! *\n))+)(?:\n *)+(?=\{([\s\S]+?)\})/, true),
+        // match: blockRegex(/^((?:([^\n]+)\n)+)(\{[^\n]\})?\n/),
+        // ^(?:(?:[^\n]+)\n)+
+        // (\{[\s\S]+\})?
+        parse: function(capture, parse, state) {
+            return {
+                type: 'paragraph',
+                content: parseInline(parse, capture[1], state)
+            };
+        },
+        react: function(node, output, state) {
+            return reactElement(
+                'div',
+                state.key,
+                {
+                    className: 'paragraph',
+                    children: output(node.content, state)
+                }
+            );
+        },
+        html: function(node, output, state) {
+            var attributes = {
+                class: 'paragraph'
+            };
+            return htmlTag("div", output(node.content, state), attributes);
+        }
+    },
     paragraph: {
         order: currOrder++,
-        match: blockRegex(/^((?:[^\n]|\n(?! *\n))+)(?:\n *)+\n/),
+        match: blockRegex(/^((?:[^\n]|\n(?! *\n))+)(?:\n *)+/),
         parse: parseCaptureInline,
         react: function(node, output, state) {
             return reactElement(
@@ -1712,6 +1830,13 @@ var defaultRules /* : DefaultRules */ = {
         html: function(node, output, state) {
             return htmlTag("del", output(node.content, state));
         }
+    },
+    span: {
+        order: currOrder++,
+        match: inlineRegex(/^\[([^\n\]]+)\]/),
+        parse: parseCaptureInline,
+        react: null,
+        html: null
     },
     inlineCode: {
         order: currOrder++,
