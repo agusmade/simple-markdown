@@ -1,49 +1,3 @@
-let _nre={};
-
-const attrIndex = re => {
-    if (_nre.hasOwnProperty(re)) { return _nre[re]; }
-    if (re.source.match(/\(\\\{\[\\s\\S\]\+\?\\\}\)\?(\\n)?$/)){
-        _nre[re] = (new RegExp(re.source + '|')).exec('').length - 1;
-        return _nre[re];
-    }
-    _nre[re]=false;
-    return _nre[re];
-}
-const numGroups = sRe => (new RegExp(sRe + '|')).exec('').length - 1;
-
-const _attrRE={
-    '\\#(\\w+)': (rslt, i, d)=>{ d.id=rslt[i+1] },
-    '\\.([\\w-]+)': (rslt, i, d)=>{ d.class=d.class||[]; d.class.push(rslt[i+1]) },
-    '([\\w-]+)\s*=\s*\\"([\\s\\S]+?)\\"': (rslt, i, d)=>{ d[rslt[i+1]]=rslt[i+2] },
-    '([\\w-]+)=([\\S]+)':(rslt, i, d)=>{ d[rslt[i+1]]=rslt[i+2] },
-    '[\\w-]+':(rslt, i, d)=>{ d[rslt[i]]=true; },
-}
-
-const _attrReKeys=Object.keys(_attrRE);
-let _idx=0;
-const _attrReIndex=_attrReKeys.map(v=>{let s=++_idx; _idx+=numGroups(v); return s; });
-const _attrAllRe=new RegExp(_attrReKeys.map(v=>`(${v})`).join('|'),'g');
-const processAttr=(s)=>{
-    if (!s){ return {}; }
-    // let _m=(s||'').match(/\{([\s\S]+)\}/);
-    // if (!(_m && _m[1])){
-    //     return {};
-    // }
-    let d={};
-    let m=!undefined;
-    while (m = _attrAllRe.exec(s)){
-        // console.log(m);
-        if (!m) { break; }
-        _attrReIndex.forEach((i,k)=>{
-            if(m[i]){
-                _attrRE[_attrReKeys[k]](m, i, d);
-            }
-        });
-    }
-    // return Object.keys(d).length ? d : false;
-    return d;
-}
-
 /* @flow */
 /* @ts-check */
 
@@ -293,6 +247,63 @@ type RefNode = {
 
 // End Flow Definitions
 */
+
+// var _nre={};
+
+// var attrIndex = function (re){
+//     if (_nre.hasOwnProperty(re)) { return _nre[re]; }
+//     if (re.source.match(/\(\\\{\[\\s\\S\]\+\?\\\}\)\?(\\n)?$/)){
+//         _nre[re] = (new RegExp(re.source + '|')).exec('').length - 1;
+//         return _nre[re];
+//     }
+//     _nre[re]=false;
+//     return _nre[re];
+// };
+
+var numGroups = function(sRe){
+    return (new RegExp(sRe + '|')).exec('').length - 1;
+};
+
+var _attrRE={
+    '\\#(\\w+)': function (rslt, i, d){ d.id=rslt[i+1] },
+    '\\.([\\w-]+)': function (rslt, i, d){ d.class=d.class||[]; d.class.push(rslt[i+1]) },
+    '([\\w-]+)\s*=\s*\\"([\\s\\S]+?)\\"': function(rslt, i, d){ d[rslt[i+1]]=rslt[i+2] },
+    '([\\w-]+)=([\\S]+)': function(rslt, i, d){ d[rslt[i+1]]=rslt[i+2] },
+    '[\\w-]+': function(rslt, i, d){ d[rslt[i]]=true; },
+};
+
+var _attrReKeys=Object.keys(_attrRE);
+var _idx=0;
+// var _attrReIndex=_attrReKeys.map(v=>{let s=++_idx; _idx+=numGroups(v); return s; });
+// let _attrAllRe=new RegExp(_attrReKeys.map(v=>`(${v})`).join('|'),'g');
+
+var _attrReIndex=_attrReKeys.map(function(v){ var s=++_idx; _idx+=numGroups(v); return s; });
+var _attrAllRe=new RegExp(_attrReKeys.map(function(v){return '('+v+')'}).join('|'),'g');
+
+
+
+var processAttr= function(s){
+    if (!s){ return {}; }
+    // let _m=(s||'').match(/\{([\s\S]+)\}/);
+    // if (!(_m && _m[1])){
+    //     return {};
+    // }
+    var d={};
+    var m=!undefined;
+    while (m = _attrAllRe.exec(s)){
+        // console.log(m);
+        if (!m) { break; }
+        _attrReIndex.forEach(function(i,k){
+            if(m[i]){
+                _attrRE[_attrReKeys[k]](m, i, d);
+            }
+        });
+    }
+    // return Object.keys(d).length ? d : false;
+    return d;
+};
+
+
 
 var CR_NEWLINE_R = /\r\n?/g;
 var TAB_R = /\t/g;
@@ -1467,7 +1478,7 @@ var defaultRules /* : DefaultRules */ = {
     br1: {
         order: currOrder++,
         match: inlineRegex(/^\\\\/),
-        parse: ()=>({type:'br'}),
+        parse: function(){ return {type:'br'} },
         react: null,
         html: null
     },
@@ -1475,7 +1486,7 @@ var defaultRules /* : DefaultRules */ = {
         order: currOrder++,
         match: anyScopeRegex(/^\s*\{([\s\S]+?)\}/),
         parse: function(capture, parse, state) {
-            let d=processAttr(capture[1])
+            var d=processAttr(capture[1]);
             return d;
         },
         react: null,
